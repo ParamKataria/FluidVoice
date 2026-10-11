@@ -72,6 +72,25 @@ nonisolated struct MeetingFinalProcessingConfiguration: Equatable, Sendable {
     }
 }
 
+/// Languages a finished meeting can be transcribed in again. Final meeting transcription uses the
+/// multilingual Parakeet model, so the choice is that model's language set, not the dictation model
+/// currently selected for live typing.
+enum MeetingRetranscriptionLanguage {
+    static func canonicalCode(_ raw: String) -> String? {
+        let code = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard VoiceEngineLanguageCatalog.parakeetV3LanguageIDs.contains(code) else { return nil }
+        return code
+    }
+
+    static var choices: [VoiceEngineLanguage] {
+        VoiceEngineLanguageCatalog.allLanguages(availableModels: [.parakeetTDT])
+    }
+
+    static func displayName(for languageCode: String) -> String {
+        Self.choices.first { $0.id == languageCode }?.displayName ?? languageCode
+    }
+}
+
 /// Inert value snapshot of live-caption ASR configuration. Live captions do no diarization.
 nonisolated struct MeetingLiveCaptionsConfiguration: Equatable, Sendable {
     static let defaultModelRepositoryID = "FluidInference/parakeet-realtime-eou-120m-coreml"

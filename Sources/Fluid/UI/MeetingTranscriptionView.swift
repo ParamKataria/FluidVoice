@@ -201,6 +201,7 @@ struct MeetingTranscriptionView: View {
                         onStart: self.startRecording,
                         onStop: self.stopAndTranscribe,
                         onRetrySession: { self.retryProcessingSession(id: $0.id) },
+                        onRetranscribe: { self.retryProcessingSession(id: $0, languageCode: $1) },
                         onRevealAudio: self.revealCapturedAudio,
                         onRecordAgain: self.recordAgain,
                         onCopyTranscript: self.copyTranscript,
@@ -752,7 +753,7 @@ struct MeetingTranscriptionView: View {
         }
     }
 
-    private func retryProcessingSession(id: MeetingSessionID) {
+    private func retryProcessingSession(id: MeetingSessionID, languageCode: String? = nil) {
         guard !self.isRetrying, self.summaryActivity.selectionLock == nil else { return }
         self.isRetrying = true
         self.actionErrorMessage = nil
@@ -760,7 +761,7 @@ struct MeetingTranscriptionView: View {
         Task {
             defer { self.isRetrying = false }
             do {
-                _ = try await self.coordinator.retryProcessing(sessionID: id)
+                _ = try await self.coordinator.retryProcessing(sessionID: id, languageCode: languageCode)
             } catch {
                 self.actionErrorMessage = error.localizedDescription
             }
@@ -1343,6 +1344,7 @@ struct MeetingTranscriptionCanvas: View {
     let onStart: () -> Void
     let onStop: () -> Void
     let onRetrySession: (MeetingSession) -> Void
+    var onRetranscribe: (MeetingSessionID, String) -> Void = { _, _ in }
     let onRevealAudio: (MeetingSession) -> Void
     let onRecordAgain: (MeetingSession) -> Void
     let onCopyTranscript: (MeetingSession, Bool) -> Void
@@ -1463,8 +1465,10 @@ struct MeetingTranscriptionCanvas: View {
                         },
                         onUndo: { self.onUndoCorrection(session.id) },
                         onRenameSession: { title in self.onRenameSession(session.id, title) },
+                        onRetranscribe: { languageCode in self.onRetranscribe(session.id, languageCode) },
                         onAssignSpeakers: { names in await self.onAssignSpeakers(session.id, names) },
                         onClose: self.onCloseSelection,
+                        isRetranscribing: self.isRetrying,
                         summaryASRService: self.summaryASRService
                     )
                 }

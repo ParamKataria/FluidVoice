@@ -1670,6 +1670,17 @@ final class MeetingSessionModelTests: XCTestCase {
         }
     }
 
+    func testEarlierProcessingAttemptMayRecordPreviousRetranscriptionLanguage() throws {
+        var session = MeetingModelFixture.makeSession()
+        session.languageCode = "nl"
+        session.processingAttempts[0].languageCode = "en"
+        var latest = session.processingAttempts[0]
+        latest.id = UUID()
+        latest.languageCode = "nl"
+        session.processingAttempts.append(latest)
+        XCTAssertNoThrow(try session.validateForPersistence())
+    }
+
     private func assertConfigurationValidationError(
         _ expected: MeetingModelValidationError,
         configuration: MeetingCaptureConfiguration,

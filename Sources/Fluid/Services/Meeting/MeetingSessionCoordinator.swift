@@ -648,11 +648,11 @@ final class MeetingSessionCoordinator: ObservableObject {
     }
 
     @discardableResult
-    func retryProcessing(sessionID: MeetingSessionID) async throws -> MeetingSession {
+    func retryProcessing(sessionID: MeetingSessionID, languageCode: String? = nil) async throws -> MeetingSession {
         guard self.retryTask == nil else { throw MeetingCoordinatorError.activityInProgress }
         let task = Task { @MainActor [weak self] () throws -> MeetingSession in
             guard let self else { throw MeetingCoordinatorError.noActiveMeeting }
-            return try await self.performRetryProcessing(sessionID: sessionID)
+            return try await self.performRetryProcessing(sessionID: sessionID, languageCode: languageCode)
         }
         self.retryTask = task
         do {
@@ -665,7 +665,7 @@ final class MeetingSessionCoordinator: ObservableObject {
         }
     }
 
-    private func performRetryProcessing(sessionID: MeetingSessionID) async throws -> MeetingSession {
+    private func performRetryProcessing(sessionID: MeetingSessionID, languageCode: String?) async throws -> MeetingSession {
         await self.ensureRestored()
         guard self.stopTask == nil,
               self.interruptionTask == nil,
@@ -681,7 +681,9 @@ final class MeetingSessionCoordinator: ObservableObject {
             guard let session = self.activeSession, session.hasRetryableAudio else {
                 throw MeetingCoordinatorError.noRecoverableAudio
             }
-            return try await self.beginProcessingRetry(session)
+            let prepared = try self.sessionPreparedForRetranscription(session, languageCode: languageCode)
+            self.activeSession = prepared
+            return try await self.beginProcessingRetry(prepared)
         }
 
         if let offer = self.activeSession {
@@ -725,9 +727,28 @@ final class MeetingSessionCoordinator: ObservableObject {
             self.state = .idle
         }
 
-        self.activeSession = session
-        self.trackHealth = Dictionary(uniqueKeysWithValues: session.audioTracks.map { ($0.kind, $0.health) })
-        return try await self.beginProcessingRetry(session)
+        let prepared = try self.sessionPreparedForRetranscription(session, languageCode: languageCode)
+        self.activeSession = prepared
+        self.trackHealth = Dictionary(uniqueKeysWithValues: prepared.audioTracks.map { ($0.kind, $0.health) })
+        return try await self.beginProcessingRetry(prepared)
+    }
+
+    /// A nil language keeps the session's current language. A new code must be one final meeting
+    /// transcription can actually run, and it is stored before processing so a failed attempt still
+    /// remembers what the user asked for.
+    private func sessionPreparedForRetranscription(
+        _ session: MeetingSession,
+        languageCode: String?
+    ) throws -> MeetingSession {
+        guard let languageCode else { return session }
+        guard let code = MeetingRetranscriptionLanguage.canonicalCode(languageCode) else {
+            throw MeetingCoordinatorError.unsupportedRetranscriptionLanguage
+        }
+        guard code != session.languageCode else { return session }
+        var updated = session
+        updated.languageCode = code
+        updated.updatedAt = Date()
+        return updated
     }
 
     private func beginProcessingRetry(_ inputSession: MeetingSession) async throws -> MeetingSession {
@@ -2173,6 +2194,7 @@ enum MeetingCoordinatorError: LocalizedError {
     case dictationActive
     case noCorrectionToUndo
     case maintenanceInProgress
+    case unsupportedRetranscriptionLanguage
 
     var errorDescription: String? {
         switch self {
@@ -2190,6 +2212,8 @@ enum MeetingCoordinatorError: LocalizedError {
             return "There is nothing to undo."
         case .maintenanceInProgress:
             return "FluidVoice is tidying up meeting storage. Try again in a moment."
+        case .unsupportedRetranscriptionLanguage:
+            return "Choose a language the meeting transcription model supports."
         }
     }
 }

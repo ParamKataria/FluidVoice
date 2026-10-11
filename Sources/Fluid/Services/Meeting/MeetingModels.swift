@@ -1155,12 +1155,12 @@ nonisolated struct MeetingSession: Codable, Identifiable, Equatable, Sendable {
                 throw MeetingModelValidationError.missingSegmentSpeaker
             }
         }
-        for attempt in self.processingAttempts {
-            if let languageCode = attempt.languageCode,
-               languageCode != self.languageCode
-            {
-                throw MeetingModelValidationError.unsupportedLanguage
-            }
+        // Earlier attempts may record a language used before the user transcribed the saved
+        // audio again. The latest recorded attempt is the transcript currently stored.
+        if let latestLanguage = self.processingAttempts.compactMap(\.languageCode).last,
+           latestLanguage != self.languageCode
+        {
+            throw MeetingModelValidationError.unsupportedLanguage
         }
     }
 
