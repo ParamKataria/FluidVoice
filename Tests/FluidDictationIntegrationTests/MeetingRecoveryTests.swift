@@ -2679,6 +2679,20 @@ final class MeetingRecoveryTests: XCTestCase {
             ),
         ]
         XCTAssertEqual(MeetingRetranscriptionLanguage.failedAttemptLanguage(for: session), "de")
+        session.processingAttempts.append(MeetingProcessingAttempt(
+            id: UUID(),
+            startedAt: Date(),
+            completedAt: nil,
+            stage: .pending,
+            pipelineVersion: 1,
+            asrProvider: nil,
+            asrModel: nil,
+            languageCode: nil,
+            diarizationModel: nil,
+            lastCompletedTrackID: nil,
+            errorCode: nil
+        ))
+        XCTAssertEqual(MeetingRetranscriptionLanguage.failedAttemptLanguage(for: session), "de")
     }
 
     func testFailedLanguageChangeWithoutAttemptMetadataKeepsOriginalLanguage() async throws {
