@@ -96,11 +96,11 @@ enum MeetingRetranscriptionLanguage {
         return code != currentLanguageCode
     }
 
-    /// The language a failed empty transcript should try again. The session language stays the one
-    /// that labels the stored result, so the requested language lives only on the failed attempt.
+    /// The language an empty meeting should try again. Only the latest attempt counts: an older
+    /// Dutch failure must not replace a later German request that is still pending.
     static func failedAttemptLanguage(for session: MeetingSession) -> String? {
         guard session.transcriptSegments.isEmpty,
-              let language = session.processingAttempts.last(where: { $0.errorCode != nil })?.languageCode,
+              let language = session.processingAttempts.last?.languageCode,
               Self.canRetranscribe(selection: language, currentLanguageCode: session.languageCode)
         else { return nil }
         return Self.canonicalCode(language)

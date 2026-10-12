@@ -2645,6 +2645,42 @@ final class MeetingRecoveryTests: XCTestCase {
         XCTAssertEqual(MeetingRetranscriptionLanguage.failedAttemptLanguage(for: persisted), "nl")
     }
 
+    func testFailedAttemptLanguageUsesLatestAttemptNotAnOlderError() {
+        var session = self.makeSession(state: .completed, endedAt: Date())
+        session.languageCode = "en"
+        session.transcriptSegments = []
+        let started = Date(timeIntervalSinceNow: -60)
+        session.processingAttempts = [
+            MeetingProcessingAttempt(
+                id: UUID(),
+                startedAt: started,
+                completedAt: started.addingTimeInterval(5),
+                stage: .completed,
+                pipelineVersion: 1,
+                asrProvider: nil,
+                asrModel: nil,
+                languageCode: "nl",
+                diarizationModel: nil,
+                lastCompletedTrackID: nil,
+                errorCode: "failed"
+            ),
+            MeetingProcessingAttempt(
+                id: UUID(),
+                startedAt: Date(),
+                completedAt: nil,
+                stage: .pending,
+                pipelineVersion: 1,
+                asrProvider: nil,
+                asrModel: nil,
+                languageCode: "de",
+                diarizationModel: nil,
+                lastCompletedTrackID: nil,
+                errorCode: nil
+            ),
+        ]
+        XCTAssertEqual(MeetingRetranscriptionLanguage.failedAttemptLanguage(for: session), "de")
+    }
+
     func testFailedLanguageChangeWithoutAttemptMetadataKeepsOriginalLanguage() async throws {
         let dir = self.makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
