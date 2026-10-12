@@ -1156,7 +1156,8 @@ nonisolated struct MeetingSession: Codable, Identifiable, Equatable, Sendable {
             }
         }
         // Earlier attempts may record a language used before the user transcribed the saved
-        // audio again. The latest recorded attempt is the transcript currently stored.
+        // audio again. The latest attempt that has a language is the one in progress or just
+        // finished, so that attempt must already carry the session language before it is saved.
         if let latestLanguage = self.processingAttempts.compactMap(\.languageCode).last,
            latestLanguage != self.languageCode
         {

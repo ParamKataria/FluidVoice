@@ -2538,6 +2538,54 @@ final class MeetingRecoveryTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: checkpointURL.path))
     }
 
+    func testFailedLanguageChangeRetryKeepsChosenLanguage() async throws {
+        let dir = self.makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = MeetingSessionStore(rootDirectory: dir)
+        let started = Date(timeIntervalSinceNow: -120)
+        var session = self.makeSession(
+            state: .completed,
+            startedAt: started,
+            endedAt: Date(),
+            audioTracks: [self.makeMicrophoneTrack(chunks: [self.makeFinalizedChunk()])],
+            processingAttempts: [MeetingProcessingAttempt(
+                id: UUID(),
+                startedAt: started,
+                completedAt: started.addingTimeInterval(10),
+                stage: .completed,
+                pipelineVersion: MeetingProcessingPipeline.pipelineVersion,
+                asrProvider: "fixture",
+                asrModel: "parakeet-tdt-v2",
+                languageCode: "en",
+                diarizationModel: nil,
+                lastCompletedTrackID: nil,
+                errorCode: nil
+            )]
+        )
+        session.languageCode = "en"
+        try await store.create(session)
+
+        let coordinator = MeetingSessionCoordinator(
+            store: store,
+            capture: StubCaptureController(),
+            processing: DiagnosticFailingProcessingController(error: ProcessingFailure()),
+            audioArbiter: StubArbiter()
+        )
+        await coordinator.ensureRestored()
+        do {
+            _ = try await coordinator.retryProcessing(sessionID: session.id, languageCode: "nl")
+            XCTFail("Expected the language-changing retry to fail during transcription")
+        } catch {
+            XCTAssertTrue(error is ProcessingFailure)
+        }
+
+        let saved = try await store.load(id: session.id)
+        let persisted = try XCTUnwrap(saved)
+        XCTAssertEqual(persisted.languageCode, "nl")
+        XCTAssertEqual(persisted.state, .failed)
+        XCTAssertEqual(persisted.processingAttempts.map(\.languageCode), ["en", "nl"])
+    }
+
     func testProcessingDiagnosticsPreserveFailureAndTranscriptAcrossRetries() async throws {
         let dir = self.makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }

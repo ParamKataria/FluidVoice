@@ -765,7 +765,11 @@ final class MeetingSessionCoordinator: ObservableObject {
         for index in session.processingAttempts.indices where session.processingAttempts[index].completedAt == nil {
             session.processingAttempts[index].completedAt = closedAt
         }
-        session.processingAttempts.append(Self.pendingProcessingAttempt())
+        // Record the language on the new attempt before the first save. A language change
+        // otherwise leaves only the previous attempt's language, and persistence rejects the session.
+        var attempt = Self.pendingProcessingAttempt()
+        attempt.languageCode = session.languageCode
+        session.processingAttempts.append(attempt)
         session.updatedAt = Date()
         self.activeSession = session
         try? await self.store.save(session)

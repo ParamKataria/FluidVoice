@@ -1670,6 +1670,18 @@ final class MeetingSessionModelTests: XCTestCase {
         }
     }
 
+    func testLanguageChangeWithoutPendingAttemptLanguageIsRejected() {
+        self.assertSessionValidationError(.unsupportedLanguage) {
+            $0.languageCode = "nl"
+            var pending = $0.processingAttempts[0]
+            pending.id = UUID()
+            pending.completedAt = nil
+            pending.stage = .pending
+            pending.languageCode = nil
+            $0.processingAttempts.append(pending)
+        }
+    }
+
     func testEarlierProcessingAttemptMayRecordPreviousRetranscriptionLanguage() throws {
         var session = MeetingModelFixture.makeSession()
         session.languageCode = "nl"
