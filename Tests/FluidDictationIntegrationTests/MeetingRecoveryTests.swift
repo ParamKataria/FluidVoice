@@ -2642,6 +2642,46 @@ final class MeetingRecoveryTests: XCTestCase {
         XCTAssertFalse(persisted.failures.isEmpty)
         XCTAssertEqual(persisted.processingAttempts.map(\.languageCode), ["en", "nl"])
         XCTAssertNotNil(persisted.processingAttempts.last?.errorCode)
+        XCTAssertEqual(MeetingRetranscriptionLanguage.failedAttemptLanguage(for: persisted), "nl")
+    }
+
+    func testFailedLanguageChangeWithoutAttemptMetadataKeepsOriginalLanguage() async throws {
+        let dir = self.makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = MeetingSessionStore(rootDirectory: dir)
+        var session = self.makeSession(
+            state: .completed,
+            endedAt: Date(),
+            audioTracks: [self.makeMicrophoneTrack(chunks: [self.makeFinalizedChunk()])]
+        )
+        session.languageCode = "en"
+        session.processingAttempts = []
+        let trackID = try XCTUnwrap(session.audioTracks.first?.id)
+        session.transcriptSegments = [self.makeTranscriptSegment(sourceTrackID: trackID, speakerID: nil)]
+        session.transcriptSegments[0].text = "Legacy transcript"
+        try await store.create(session)
+
+        let coordinator = MeetingSessionCoordinator(
+            store: store,
+            capture: StubCaptureController(),
+            processing: DiagnosticFailingProcessingController(error: ProcessingFailure()),
+            audioArbiter: StubArbiter()
+        )
+        await coordinator.ensureRestored()
+        do {
+            _ = try await coordinator.retryProcessing(sessionID: session.id, languageCode: "nl")
+            XCTFail("Expected the language-changing retry to fail during transcription")
+        } catch {
+            XCTAssertTrue(error is ProcessingFailure)
+        }
+
+        let saved = try await store.load(id: session.id)
+        let persisted = try XCTUnwrap(saved)
+        XCTAssertEqual(persisted.languageCode, "en")
+        XCTAssertEqual(persisted.state, .completed)
+        XCTAssertEqual(persisted.transcriptSegments.map(\.text), ["Legacy transcript"])
+        let exported = try JSONSerialization.jsonObject(with: MeetingTranscriptExporter.json(for: persisted)) as? [String: Any]
+        XCTAssertEqual(exported?["languageCode"] as? String, "en")
     }
 
     func testProcessingDiagnosticsPreserveFailureAndTranscriptAcrossRetries() async throws {

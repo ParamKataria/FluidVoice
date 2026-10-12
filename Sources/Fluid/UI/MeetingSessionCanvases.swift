@@ -581,6 +581,7 @@ struct MeetingResultCanvas: View {
         .sheet(isPresented: self.$isChoosingRetranscriptionLanguage) {
             MeetingRetranscriptionLanguageSheet(
                 languages: MeetingRetranscriptionLanguage.choices,
+                currentLanguageCode: self.session.languageCode,
                 selection: self.$retranscriptionLanguageCode,
                 isBusy: self.isRetranscribing,
                 onCancel: { self.isChoosingRetranscriptionLanguage = false },
@@ -1258,6 +1259,7 @@ struct MeetingTranscriptTextEditor: View {
 
 private struct MeetingRetranscriptionLanguageSheet: View {
     let languages: [VoiceEngineLanguage]
+    let currentLanguageCode: String
     @Binding var selection: String
     let isBusy: Bool
     let onCancel: () -> Void
@@ -1295,7 +1297,12 @@ private struct MeetingRetranscriptionLanguageSheet: View {
                 Button(self.isBusy ? "Transcribing…" : "Transcribe", action: self.onConfirm)
                     .meetingGlassAction(prominent: true)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(self.isBusy || MeetingRetranscriptionLanguage.canonicalCode(self.selection) == nil)
+                    .disabled(
+                        self.isBusy || !MeetingRetranscriptionLanguage.canRetranscribe(
+                            selection: self.selection,
+                            currentLanguageCode: self.currentLanguageCode
+                        )
+                    )
             }
         }
         .padding(self.theme.metrics.spacing.xl)

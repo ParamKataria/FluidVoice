@@ -200,7 +200,7 @@ struct MeetingTranscriptionView: View {
                         errorMessage: self.actionErrorMessage,
                         onStart: self.startRecording,
                         onStop: self.stopAndTranscribe,
-                        onRetrySession: { self.retryProcessingSession(id: $0.id) },
+                        onRetrySession: { self.retryProcessingSession(id: $0.id, languageCode: MeetingRetranscriptionLanguage.failedAttemptLanguage(for: $0)) },
                         onRetranscribe: { self.retryProcessingSession(id: $0, languageCode: $1) },
                         onRevealAudio: self.revealCapturedAudio,
                         onRecordAgain: self.recordAgain,
@@ -251,7 +251,13 @@ struct MeetingTranscriptionView: View {
                             isLoading: !self.historySnapshot.hasLoaded,
                             isQuiescent: self.coordinator.isQuiescent,
                             onRefresh: { Task { await self.loadMeetingHistory() } },
-                            onRetry: { self.retryProcessingSession(id: $0) },
+                            onRetry: { id in
+                                let session = self.historySnapshot.sessions.first { $0.id == id }
+                                self.retryProcessingSession(
+                                    id: id,
+                                    languageCode: session.flatMap(MeetingRetranscriptionLanguage.failedAttemptLanguage(for:))
+                                )
+                            },
                             onRevealAudio: self.revealCapturedAudio,
                             onExportAudio: self.exportAudio,
                             onExportTranscript: { self.exportTranscript($0, format: $1, includeEchoes: false) },

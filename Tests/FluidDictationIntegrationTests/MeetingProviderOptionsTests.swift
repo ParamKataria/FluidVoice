@@ -22,6 +22,8 @@ final class MeetingProviderOptionsTests: XCTestCase {
         XCTAssertNil(MeetingRetranscriptionLanguage.canonicalCode("zh"))
         XCTAssertNil(MeetingRetranscriptionLanguage.canonicalCode(" "))
         XCTAssertEqual(MeetingRetranscriptionLanguage.displayName(for: "de"), "German")
+        XCTAssertFalse(MeetingRetranscriptionLanguage.canRetranscribe(selection: "en", currentLanguageCode: "en"))
+        XCTAssertTrue(MeetingRetranscriptionLanguage.canRetranscribe(selection: "nl", currentLanguageCode: "en"))
         XCTAssertEqual(
             MeetingFinalProcessingConfiguration(languageCode: "de").asrModel,
             "parakeet-tdt"

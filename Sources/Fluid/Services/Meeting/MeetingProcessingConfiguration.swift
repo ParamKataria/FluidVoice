@@ -89,6 +89,22 @@ enum MeetingRetranscriptionLanguage {
     static func displayName(for languageCode: String) -> String {
         Self.choices.first { $0.id == languageCode }?.displayName ?? languageCode
     }
+
+    /// A same-language run replaces nothing and, if it fails, hides the transcript that is already there.
+    static func canRetranscribe(selection: String, currentLanguageCode: String) -> Bool {
+        guard let code = Self.canonicalCode(selection) else { return false }
+        return code != currentLanguageCode
+    }
+
+    /// The language a failed empty transcript should try again. The session language stays the one
+    /// that labels the stored result, so the requested language lives only on the failed attempt.
+    static func failedAttemptLanguage(for session: MeetingSession) -> String? {
+        guard session.transcriptSegments.isEmpty,
+              let language = session.processingAttempts.last(where: { $0.errorCode != nil })?.languageCode,
+              Self.canRetranscribe(selection: language, currentLanguageCode: session.languageCode)
+        else { return nil }
+        return Self.canonicalCode(language)
+    }
 }
 
 /// Inert value snapshot of live-caption ASR configuration. Live captions do no diarization.
