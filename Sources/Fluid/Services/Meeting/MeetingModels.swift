@@ -1155,13 +1155,19 @@ nonisolated struct MeetingSession: Codable, Identifiable, Equatable, Sendable {
                 throw MeetingModelValidationError.missingSegmentSpeaker
             }
         }
-        // Earlier attempts may record a language used before the user transcribed the saved
-        // audio again. The latest attempt that has a language is the one in progress or just
-        // finished, so that attempt must already carry the session language before it is saved.
-        if let latestLanguage = self.processingAttempts.compactMap(\.languageCode).last,
-           latestLanguage != self.languageCode
-        {
-            throw MeetingModelValidationError.unsupportedLanguage
+        // A finished attempt that failed may name the language that was tried. The session
+        // language labels the transcript that is still stored, so it has to match the latest
+        // attempt that did not fail. An in-progress attempt with no error must already match.
+        if let latest = self.processingAttempts.last(where: { $0.languageCode != nil }) {
+            if latest.errorCode != nil {
+                if let transcriptLanguage = self.processingAttempts.dropLast().last(where: {
+                    $0.languageCode != nil && $0.errorCode == nil && $0.stage == .completed
+                })?.languageCode, transcriptLanguage != self.languageCode {
+                    throw MeetingModelValidationError.unsupportedLanguage
+                }
+            } else if latest.languageCode != self.languageCode {
+                throw MeetingModelValidationError.unsupportedLanguage
+            }
         }
     }
 

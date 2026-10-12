@@ -2563,6 +2563,9 @@ final class MeetingRecoveryTests: XCTestCase {
             )]
         )
         session.languageCode = "en"
+        let trackID = try XCTUnwrap(session.audioTracks.first?.id)
+        session.transcriptSegments = [self.makeTranscriptSegment(sourceTrackID: trackID, speakerID: nil)]
+        session.transcriptSegments[0].text = "English transcript"
         try await store.create(session)
 
         let coordinator = MeetingSessionCoordinator(
@@ -2581,9 +2584,13 @@ final class MeetingRecoveryTests: XCTestCase {
 
         let saved = try await store.load(id: session.id)
         let persisted = try XCTUnwrap(saved)
-        XCTAssertEqual(persisted.languageCode, "nl")
-        XCTAssertEqual(persisted.state, .failed)
+        XCTAssertEqual(persisted.languageCode, "en")
+        XCTAssertEqual(persisted.state, .completed)
+        XCTAssertEqual(persisted.transcriptSegments.map(\.text), ["English transcript"])
         XCTAssertEqual(persisted.processingAttempts.map(\.languageCode), ["en", "nl"])
+        XCTAssertNotNil(persisted.processingAttempts.last?.errorCode)
+        let exported = try JSONSerialization.jsonObject(with: MeetingTranscriptExporter.json(for: persisted)) as? [String: Any]
+        XCTAssertEqual(exported?["languageCode"] as? String, "en")
     }
 
     func testProcessingDiagnosticsPreserveFailureAndTranscriptAcrossRetries() async throws {

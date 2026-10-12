@@ -751,6 +751,44 @@ final class MeetingSessionCoordinator: ObservableObject {
         return updated
     }
 
+    /// Puts back the transcript that was already stored. A failed language change must not leave
+    /// that transcript labeled with the language that did not finish, or hide it behind the failure screen.
+    private func restoreStoredTranscript(_ session: inout MeetingSession, from inputSession: MeetingSession) {
+        session.speakers = inputSession.speakers
+        session.transcriptSegments = inputSession.transcriptSegments
+        session.postProcessing = inputSession.postProcessing
+        session.transcriptCoverageGaps = inputSession.transcriptCoverageGaps
+        session.resultSidecarReference = inputSession.resultSidecarReference
+        session.transcriptIsComplete = inputSession.transcriptIsComplete
+        session.transcriptTimeDomain = inputSession.transcriptTimeDomain
+    }
+
+    private func keepPreviousTranscriptVisible(_ session: inout MeetingSession) -> Bool {
+        guard !session.transcriptSegments.isEmpty,
+              let previousLanguage = session.processingAttempts.dropLast().last(where: {
+                  $0.languageCode != nil && $0.errorCode == nil && $0.stage == .completed
+              })?.languageCode,
+              previousLanguage != session.languageCode
+        else { return false }
+        session.languageCode = previousLanguage
+        return true
+    }
+
+    private func publishRetryOutcome(_ session: MeetingSession, failure: MeetingSessionFailure?) {
+        self.operationGeneration = nil
+        if session.state == .completed {
+            self.activeSession = nil
+            self.latestCompletedSession = session
+            self.state = .completed(session.id)
+        } else if session.state == .interrupted {
+            self.activeSession = session
+            self.state = .interrupted(session.id)
+        } else if let failure {
+            self.activeSession = session
+            self.state = .failed(session.id, failure)
+        }
+    }
+
     private func beginProcessingRetry(_ inputSession: MeetingSession) async throws -> MeetingSession {
         var session = inputSession
         if self.activityLease == nil {
@@ -1728,20 +1766,22 @@ final class MeetingSessionCoordinator: ObservableObject {
                 throw error
             }
             if error is CancellationError {
-                session.speakers = inputSession.speakers
-                session.transcriptSegments = inputSession.transcriptSegments
-                session.postProcessing = inputSession.postProcessing
-                session.transcriptCoverageGaps = inputSession.transcriptCoverageGaps
-                session.resultSidecarReference = inputSession.resultSidecarReference
-                session.transcriptIsComplete = inputSession.transcriptIsComplete
-                session.transcriptTimeDomain = inputSession.transcriptTimeDomain
-                session.state = .interrupted
+                self.restoreStoredTranscript(&session, from: inputSession)
+                let previousLanguage = session.processingAttempts.dropLast().last(where: {
+                    $0.languageCode != nil && $0.errorCode == nil && $0.stage == .completed
+                })?.languageCode
+                if let previousLanguage, previousLanguage != session.languageCode,
+                   let lastIndex = session.processingAttempts.indices.last
+                {
+                    session.processingAttempts[lastIndex].errorCode = "cancelled"
+                    session.processingAttempts[lastIndex].completedAt = Date()
+                }
+                let keptTranscript = self.keepPreviousTranscriptVisible(&session)
+                session.state = keptTranscript ? .completed : .interrupted
                 session.updatedAt = Date()
                 await self.flushQueuedPersistence()
                 try? await self.store.save(session)
-                self.activeSession = session
-                self.state = .interrupted(session.id)
-                self.operationGeneration = nil
+                self.publishRetryOutcome(session, failure: nil)
                 await self.releaseActivityLease()
                 throw error
             }
@@ -1750,25 +1790,18 @@ final class MeetingSessionCoordinator: ObservableObject {
             // A failed completed-session save must not durably publish a sidecar or overwrite the
             // last saved transcript under `.failed`. The verified new sidecar remains unreferenced
             // for retry/journal reconciliation.
-            session.speakers = inputSession.speakers
-            session.transcriptSegments = inputSession.transcriptSegments
-            session.postProcessing = inputSession.postProcessing
-            session.transcriptCoverageGaps = inputSession.transcriptCoverageGaps
-            session.resultSidecarReference = inputSession.resultSidecarReference
-            session.transcriptIsComplete = inputSession.transcriptIsComplete
-            session.transcriptTimeDomain = inputSession.transcriptTimeDomain
+            self.restoreStoredTranscript(&session, from: inputSession)
             if let lastIndex = session.processingAttempts.indices.last {
                 session.processingAttempts[lastIndex].errorCode = failure.code
                 session.processingAttempts[lastIndex].completedAt = Date()
             }
             session.failures.append(failure)
-            session.state = .failed
+            let keptTranscript = self.keepPreviousTranscriptVisible(&session)
+            session.state = keptTranscript ? .completed : .failed
             session.updatedAt = Date()
             await self.flushQueuedPersistence()
             try? await self.store.save(session)
-            self.activeSession = session
-            self.state = .failed(session.id, failure)
-            self.operationGeneration = nil
+            self.publishRetryOutcome(session, failure: keptTranscript ? nil : failure)
             await self.releaseActivityLease()
             throw error
         }
