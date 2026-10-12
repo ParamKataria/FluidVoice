@@ -763,11 +763,17 @@ final class MeetingSessionCoordinator: ObservableObject {
         session.transcriptTimeDomain = inputSession.transcriptTimeDomain
     }
 
-    private func keepPreviousTranscriptVisible(_ session: inout MeetingSession) -> Bool {
-        guard !session.transcriptSegments.isEmpty,
-              let previousLanguage = session.processingAttempts.dropLast().last(where: {
-                  $0.languageCode != nil && $0.errorCode == nil && $0.stage == .completed
-              })?.languageCode,
+    /// The language of the transcript that is still stored, including a completed attempt that produced no text.
+    private func previousCompletedLanguage(_ session: MeetingSession) -> String? {
+        session.processingAttempts.dropLast().last(where: {
+            $0.languageCode != nil && $0.errorCode == nil && $0.stage == .completed
+        })?.languageCode
+    }
+
+    /// Puts the session language back so a failed attempt cannot reject the save or mislabel an export.
+    /// Returns whether a previous completed language replaced the language that did not finish.
+    private func restorePreviousCompletedLanguage(_ session: inout MeetingSession) -> Bool {
+        guard let previousLanguage = self.previousCompletedLanguage(session),
               previousLanguage != session.languageCode
         else { return false }
         session.languageCode = previousLanguage
@@ -1776,8 +1782,9 @@ final class MeetingSessionCoordinator: ObservableObject {
                     session.processingAttempts[lastIndex].errorCode = "cancelled"
                     session.processingAttempts[lastIndex].completedAt = Date()
                 }
-                let keptTranscript = self.keepPreviousTranscriptVisible(&session)
-                session.state = keptTranscript ? .completed : .interrupted
+                let restoredLanguage = self.restorePreviousCompletedLanguage(&session)
+                let showCompletedTranscript = restoredLanguage && !session.transcriptSegments.isEmpty
+                session.state = showCompletedTranscript ? .completed : .interrupted
                 session.updatedAt = Date()
                 await self.flushQueuedPersistence()
                 try? await self.store.save(session)
@@ -1796,12 +1803,13 @@ final class MeetingSessionCoordinator: ObservableObject {
                 session.processingAttempts[lastIndex].completedAt = Date()
             }
             session.failures.append(failure)
-            let keptTranscript = self.keepPreviousTranscriptVisible(&session)
-            session.state = keptTranscript ? .completed : .failed
+            let restoredLanguage = self.restorePreviousCompletedLanguage(&session)
+            let showCompletedTranscript = restoredLanguage && !session.transcriptSegments.isEmpty
+            session.state = showCompletedTranscript ? .completed : .failed
             session.updatedAt = Date()
             await self.flushQueuedPersistence()
             try? await self.store.save(session)
-            self.publishRetryOutcome(session, failure: keptTranscript ? nil : failure)
+            self.publishRetryOutcome(session, failure: showCompletedTranscript ? nil : failure)
             await self.releaseActivityLease()
             throw error
         }
